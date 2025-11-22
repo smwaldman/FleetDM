@@ -1,0 +1,124 @@
+agent_options:
+
+controls:
+  windows_enabled_and_configured: true
+  windows_settings:
+    custom_settings:
+    - labels_exclude_any:
+      - Remove SCEP (troubleshooting)
+      path: ../lib/windows-workstations/profiles/okta-scep.xml
+
+name: Windows Workstations
+policies:
+- calendar_events_enabled: false
+  conditional_access_enabled: false
+  critical: true
+  description: This policy enrolls a Windows device in Okta SCEP if it's not already
+    enrolled. It will only run if the SCEP profile has already installed from FleetDM.
+  name: Okta Verify is Connected
+  platform: windows
+  query: |
+    SELECT common_name, path
+    FROM certificates
+    WHERE common_name LIKE (SELECT uuid FROM system_info) || '%Okta managementAttestation'
+      AND path NOT LIKE '%_Classes%'
+
+    UNION ALL
+
+    SELECT '<your_node_name>_entry_missing' AS common_name, '' as path
+    WHERE NOT EXISTS (
+      SELECT 1 FROM registry
+      WHERE path LIKE (SELECT registry_hive FROM logged_in_users WHERE tty='Console')
+                   || '\Software\Microsoft\SCEP\Fleet\<your_node_name>\%%'
+        LIMIT 1
+    );
+  resolution: 'If the policy shows that it''s failing, click Refetch in the upper
+    right of this screen. Then wait 5 minutes, and click Refetch again. '
+  run_script:
+    path: ../lib/windows-workstations/scripts/scep_enroll_with_retry.ps1
+- calendar_events_enabled: false
+  conditional_access_enabled: false
+  critical: false
+  description: This policy checks if a computer has the ability to get a cert from
+    Okta.
+  name: Okta Verify is Ready to Connect
+  platform: windows
+  query: |-
+    SELECT 1 FROM registry WHERE path like (SELECT registry_hive FROM logged_in_users WHERE tty = 'Console') || '\Software\Microsoft\SCEP\Fleet\<your_node_name>\%%'
+    LIMIT 1;
+  resolution: If this policy is failing, hit Refetch until it passes.
+- calendar_events_enabled: false
+  conditional_access_enabled: false
+  critical: false
+  description: If the first policy failed to connect your computer to Okta, this policy
+    will attempt it again.
+  name: Okta Verify is Connected (attempt 2)
+  platform: windows
+  query: |
+    -- Returns 1 if the file is missing; returns no rows if it exists
+    SELECT 1
+    WHERE NOT EXISTS (
+      SELECT 1 FROM file
+      WHERE path = 'C:\ProgramData\RemitlyIT\Tags\enroll_failed.txt'
+    );
+  resolution:
+  run_script:
+    path: ../lib/windows-workstations/scripts/scep_enroll_with_retry.ps1
+
+queries:
+- automations_enabled: false
+  description: checks if the <your_node_name> node is in the registry
+  discard_data: false
+  interval: 0
+  logging: snapshot
+  min_osquery_version:
+  name: <your_node_name> node presense
+  observer_can_run: false
+  platform: windows
+  query: |-
+    SELECT 1 FROM registry WHERE path like (SELECT registry_hive FROM logged_in_users WHERE tty = 'Console') || '\Software\Microsoft\SCEP\Fleet\<your_node_name>\%%'
+    LIMIT 1;
+- automations_enabled: false
+  description:
+  discard_data: false
+  interval: 86400
+  logging: snapshot
+  min_osquery_version:
+  name: Query for Okta managementAttestation cert
+  observer_can_run: false
+  platform: darwin,windows,linux
+  query: |-
+    SELECT common_name, path
+    FROM certificates
+        WHERE common_name LIKE (SELECT uuid FROM system_info)|| '%Okta managementAttestation'
+        AND path NOT LIKE '%_Classes%'
+- automations_enabled: true
+  description: Runs to check if ZTA Config File exists for Okta Verify
+  discard_data: false
+  interval: 3600
+  logging: snapshot
+  min_osquery_version:
+  name: Okta Verify ZTA - create and modify times
+  observer_can_run: false
+  platform: windows
+  query: "SELECT \n    datetime(mtime, 'unixepoch', 'UTC') AS mod_time, \n    datetime(mtime,
+    'unixepoch', 'UTC') AS create_time, \n    datetime(ctime, 'unixepoch') AS status_change_time\nFROM
+    file \nWHERE path = '<your_EDR_ZTA_config_file_path>';"
+
+software:
+  packages:
+  - categories:
+    - Productivity
+    hash_sha256: 
+      # Okta Verify (OktaVerifySetup-6.2.1.0-ab2e458.exe) version 6.2.1.0
+    icon:
+      path: ../lib/windows-workstations/icons/okta-verify-windows-icon.png
+    install_script:
+      path: ../lib/windows-workstations/scripts/okta-verify-windows-install
+    post_install_script:
+      path: ../lib/windows-workstations/scripts/okta-verify-windows-postinstall
+    self_service: true
+    uninstall_script:
+      path: ../lib/windows-workstations/scripts/okta-verify-windows-uninstall
+  
+team_settings:
