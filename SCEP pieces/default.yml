@@ -1,0 +1,38 @@
+agent_options:
+
+labels:
+- description: If a machine is added to this label, it will exclude the device from
+    the SCEP profile. After excluding and waiting for the exlusion to propagate, remove
+    the label to re-push the SCEP profile.
+  hosts:
+  label_membership_type: manual
+  name: Remove SCEP (troubleshooting)
+
+- description: Checks if an Okta SCEP cert exists on the device. All policies EXCEPT
+    SCEP policies are excluded from this label. The avoids delays with the SCEP cert.
+  label_membership_type: dynamic
+  name: 'Okta: Cert Exists'
+  platform: windows
+  query: |-
+    SELECT 1
+    FROM certificates
+        WHERE common_name LIKE (SELECT uuid FROM system_info)|| '%Okta managementAttestation'
+        AND path NOT LIKE '%_Classes%'
+
+- description: Label assigned to no devices, used to scope policies, controls, etc.
+    to nothing.
+  hosts:
+  label_membership_type: manual
+  name: Disabled Control
+
+- description:
+  label_membership_type: dynamic
+  name: 'Okta: ''<your_node_name>'' Node Exists'
+  platform: windows
+  query: |-
+    SELECT 1 FROM registry WHERE path like (SELECT registry_hive FROM logged_in_users WHERE tty = 'Console') || '\Software\Microsoft\SCEP\Fleet\<your_node_name>\%%'
+    LIMIT 1;
+
+org_settings:
+policies:
+queries:
